@@ -1,197 +1,185 @@
+# FastGPT Deployment Script
+# This script automates the deployment process of FastGPT, including cloning the repository,
+# configuring the .env file, starting the services, and verifying the database connection.
 
+# --- Configuration ---
+$fastGptRepoUrl = "https://github.com/labring/FastGPT.git"
+$fastGptDir = "FastGPT"
+$fastGptEnvExampleFile = ".env.example"
+$fastGptEnvFile = ".env"
 
+# --- Prerequisite Checks ---
 
-
-# FastGPT 部署脚本
-# 本脚本旨在自动化FastGPT的部署过程，包括克隆仓库、配置.env文件、启动服务和验证数据库。
-
-# 定义变量
-$FastGPTRepo = "https://github.com/labring/FastGPT.git"
-$FastGPTDir = "FastGPT"
-$FastGPTEnvExample = ".env.example"
-$FastGPTEnv = ".env"
-
-# 检查并安装Git (如果未安装)
-function Install-Git {
+# Checks if Git is installed and attempts to install it via winget if not found.
+function Ensure-GitInstalled {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host "Git 未安装，正在尝试安装..."
+        Write-Host "Git is not installed. Attempting to install via winget..."
         try {
-            # 尝试使用 winget 安装 Git
             winget install --id Git.Git -e --source winget
             if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-                Write-Host "winget 安装 Git 失败，请手动安装 Git 并确保其在 PATH 中。" -ForegroundColor Red
-                Write-Host "下载地址: https://git-scm.com/download/win" -ForegroundColor Yellow
+                Write-Host "Failed to install Git using winget. Please install Git manually and ensure it's in your PATH." -ForegroundColor Red
+                Write-Host "Download from: https://git-scm.com/download/win" -ForegroundColor Yellow
                 exit 1
             }
         } catch {
-            Write-Host "winget 命令不可用或安装失败，请手动安装 Git 并确保其在 PATH 中。" -ForegroundColor Red
-            Write-Host "下载地址: https://git-scm.com/download/win" -ForegroundColor Yellow
+            Write-Host "winget command is unavailable or the installation failed. Please install Git manually and ensure it's in your PATH." -ForegroundColor Red
+            Write-Host "Download from: https://git-scm.com/download/win" -ForegroundColor Yellow
             exit 1
         }
     }
 }
 
-# 检查并安装Docker Desktop (如果未运行)
-function Check-DockerDesktop {
-    Write-Host "检查 Docker Desktop 状态..."
+# Checks if Docker Desktop is running.
+function Ensure-DockerDesktopRunning {
+    Write-Host "Checking Docker Desktop status..."
     $dockerRunning = (docker info -f '{{.ServerStatus}}' 2>$null) -eq 'running'
     if (-not $dockerRunning) {
-        Write-Host "Docker Desktop 未运行或未正确安装。请确保 Docker Desktop 已安装并正在运行，且 WSL2 已启用。" -ForegroundColor Red
-        Write-Host "下载地址: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
+        Write-Host "Docker Desktop is not running or not installed correctly. Please ensure Docker Desktop is installed, running, and WSL2 is enabled." -ForegroundColor Red
+        Write-Host "Download from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "Docker Desktop 正在运行。"
+    Write-Host "Docker Desktop is running."
 }
 
-# 检查并配置WSL2
-function Check-WSL2 {
-    Write-Host "检查 WSL2 配置..."
+# Checks if WSL2 is installed and set as the default version.
+function Ensure-WSL2Configured {
+    Write-Host "Checking WSL2 configuration..."
     try {
         $wslVersion = wsl --version 2>$null
         if (-not $wslVersion) {
-            Write-Host "WSL 未安装。正在尝试安装 WSL..." -ForegroundColor Yellow
+            Write-Host "WSL is not installed. Attempting to install WSL..." -ForegroundColor Yellow
             wsl --install
-            Write-Host "请重启计算机以完成 WSL 安装，然后重新运行此脚本。" -ForegroundColor Green
+            Write-Host "Please restart your computer to complete the WSL installation, then re-run this script." -ForegroundColor Green
             exit 0
         }
-        $wslDefaultVersion = (wsl --set-default-version 2 2>$null)
+        wsl --set-default-version 2 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "WSL2 设置为默认版本失败。请确保您的系统支持 WSL2。" -ForegroundColor Red
+            Write-Host "Failed to set WSL2 as the default version. Please ensure your system supports WSL2." -ForegroundColor Red
             exit 1
         }
-        Write-Host "WSL2 已配置为默认版本。"
+        Write-Host "WSL2 has been configured as the default version."
     } catch {
-        Write-Host "检查 WSL2 配置时发生错误: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "An error occurred while checking WSL2 configuration: $($_.Exception.Message)" -ForegroundColor Red
         exit 1
     }
 }
 
-# 主部署流程
-function Deploy-FastGPT {
+# --- Main Deployment Logic ---
+
+# Main function to deploy FastGPT.
+function Start-FastGptDeployment {
     param (
         [string]$PostgresPassword,
         [string]$MongoRootPassword,
-        [string]$OllamaHost = "http://localhost:11434",
-        [string]$JwtSecret = (New-Guid).ToString()
+        [string]$OllamaHost,
+        [string]$JwtSecret
     )
 
-    Write-Host "开始部署 FastGPT..." -ForegroundColor Green
+    Write-Host "Starting FastGPT deployment..." -ForegroundColor Green
 
-    # 1. 检查并安装Git
-    Install-Git
+    # 1. Prerequisite checks
+    Ensure-GitInstalled
+    Ensure-WSL2Configured
+    Ensure-DockerDesktopRunning
 
-    # 2. 检查并配置WSL2
-    Check-WSL2
-
-    # 3. 检查Docker Desktop状态
-    Check-DockerDesktop
-
-    # 4. 克隆 FastGPT 仓库
-    if (Test-Path $FastGPTDir) {
-        Write-Host "FastGPT 目录已存在，跳过克隆。" -ForegroundColor Yellow
-        Set-Location $FastGPTDir
+    # 2. Clone FastGPT repository
+    if (Test-Path $fastGptDir) {
+        Write-Host "FastGPT directory already exists, skipping clone. Pulling latest changes..." -ForegroundColor Yellow
+        Set-Location $fastGptDir
         git pull
     } else {
-        Write-Host "克隆 FastGPT 仓库..." -ForegroundColor Green
-        git clone $FastGPTRepo
-        if (-not (Test-Path $FastGPTDir)) {
-            Write-Host "FastGPT 仓库克隆失败。" -ForegroundColor Red
+        Write-Host "Cloning FastGPT repository..." -ForegroundColor Green
+        git clone $fastGptRepoUrl
+        if (-not (Test-Path $fastGptDir)) {
+            Write-Host "Failed to clone FastGPT repository." -ForegroundColor Red
             exit 1
         }
-        Set-Location $FastGPTDir
+        Set-Location $fastGptDir
     }
 
-    # 5. 创建并编辑 .env 文件
-    Write-Host "创建并配置 .env 文件..." -ForegroundColor Green
-    Copy-Item $FastGPTEnvExample $FastGPTEnv -Force
+    # 3. Create and configure .env file
+    Write-Host "Creating and configuring .env file..." -ForegroundColor Green
+    Copy-Item $fastGptEnvExampleFile $fastGptEnvFile -Force
 
-    # 读取 .env 文件内容
-    $envContent = Get-Content $FastGPTEnv | Out-String
+    $envFileContent = Get-Content $fastGptEnvFile | Out-String
+    $envFileContent = $envFileContent -replace "^POSTGRES_PASSWORD=.*$", "POSTGRES_PASSWORD=$PostgresPassword"
+    $envFileContent = $envFileContent -replace "^MONGO_INITDB_ROOT_PASSWORD=.*$", "MONGO_INITDB_ROOT_PASSWORD=$MongoRootPassword"
+    $envFileContent = $envFileContent -replace "^OLLAMA_HOST=.*$", "OLLAMA_HOST=$OllamaHost"
+    $envFileContent = $envFileContent -replace "^JWT_SECRET=.*$", "JWT_SECRET=$JwtSecret"
+    Set-Content -Path $fastGptEnvFile -Value $envFileContent
+    Write-Host ".env file configured successfully." -ForegroundColor Green
 
-    # 替换关键配置项
-    $envContent = $envContent -replace "^POSTGRES_PASSWORD=.*$", "POSTGRES_PASSWORD=$PostgresPassword"
-    $envContent = $envContent -replace "^MONGO_INITDB_ROOT_PASSWORD=.*$", "MONGO_INITDB_ROOT_PASSWORD=$MongoRootPassword"
-    $envContent = $envContent -replace "^OLLAMA_HOST=.*$", "OLLAMA_HOST=$OllamaHost"
-    $envContent = $envContent -replace "^JWT_SECRET=.*$", "JWT_SECRET=$JwtSecret"
+    # 4. Pull Docker images and start services
+    Write-Host "Pulling Docker images and starting FastGPT services (this may take a while)..." -ForegroundColor Green
+    docker compose pull
+    docker compose up -d
 
-    # 写入修改后的内容
-    Set-Content -Path $FastGPTEnv -Value $envContent
-    Write-Host ".env 文件配置完成。" -ForegroundColor Green
-
-    # 6. 拉取 Docker 镜像并启动服务
-    Write-Host "拉取 Docker 镜像并启动 FastGPT 服务..." -ForegroundColor Green
-    docker-compose pull
-    docker-compose up -d
-
-    # 7. 验证 FastGPT 服务状态
-    Write-Host "验证 FastGPT 服务状态..." -ForegroundColor Green
-    Start-Sleep -Seconds 30 # 等待服务启动
+    # 5. Verify FastGPT service status
+    Write-Host "Verifying FastGPT service status... (waiting 30 seconds for services to initialize)" -ForegroundColor Green
+    Start-Sleep -Seconds 30
     $healthCheckUrl = "http://localhost/health"
     try {
         $response = Invoke-WebRequest -Uri $healthCheckUrl -UseBasicParsing -ErrorAction Stop
         if ($response.StatusCode -eq 200 -and $response.Content -like '*"healthy"*') {
-            Write-Host "FastGPT 服务运行正常！" -ForegroundColor Green
+            Write-Host "FastGPT service is running properly!" -ForegroundColor Green
         } else {
-            Write-Host "FastGPT 服务健康检查失败。状态码: $($response.StatusCode)，内容: $($response.Content)" -ForegroundColor Red
+            Write-Host "FastGPT service health check failed. Status Code: $($response.StatusCode), Content: $($response.Content)" -ForegroundColor Red
         }
     } catch {
-        Write-Host "无法连接到 FastGPT 健康检查接口。请检查服务是否启动或端口是否开放。错误: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "Could not connect to the FastGPT health check endpoint. Please check if the service has started or if the port is open. Error: $($_.Exception.Message)" -ForegroundColor Red
     }
 
-    # 8. 验证数据库状态 (可选，仅作示例)
-    Write-Host "验证数据库状态..." -ForegroundColor Green
+    # 6. Verify database container status
+    Write-Host "Verifying database container status..." -ForegroundColor Green
     try {
         # PostgreSQL
-        docker exec -it fastgpt_postgres_1 psql -U postgres -c "\l" 2>&1 | Out-Null
+        docker exec -i fastgpt_postgres_1 psql -U postgres -c "\l" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "PostgreSQL 数据库容器运行正常。" -ForegroundColor Green
+            Write-Host "PostgreSQL container is running properly." -ForegroundColor Green
         } else {
-            Write-Host "PostgreSQL 数据库容器验证失败。" -ForegroundColor Red
+            Write-Host "PostgreSQL container verification failed." -ForegroundColor Red
         }
 
         # MongoDB
-        docker exec -it fastgpt_mongo_1 mongosh --eval "db.adminCommand('ping')" 2>&1 | Out-Null
+        docker exec -i fastgpt_mongo_1 mongosh --eval "db.adminCommand('ping')" 2>&1 | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "MongoDB 数据库容器运行正常。" -ForegroundColor Green
+            Write-Host "MongoDB container is running properly." -ForegroundColor Green
         } else {
-            Write-Host "MongoDB 数据库容器验证失败。" -ForegroundColor Red
+            Write-Host "MongoDB container verification failed." -ForegroundColor Red
         }
     } catch {
-        Write-Host "验证数据库时发生错误: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "An error occurred while verifying database status: $($_.Exception.Message)" -ForegroundColor Red
     }
 
-    Write-Host "FastGPT 部署流程完成。" -ForegroundColor Green
+    Write-Host "FastGPT deployment process completed." -ForegroundColor Green
 }
 
-# 脚本入口
-# 请替换以下密码为您的实际密码
-$postgresPass = Read-Host -Prompt "请输入 PostgreSQL 数据库密码 (例如: your_postgres_password)" -AsSecureString
-$mongoPass = Read-Host -Prompt "请输入 MongoDB 数据库密码 (例如: your_mongo_password)" -AsSecureString
-$ollamaHostInput = Read-Host -Prompt "请输入 Ollama 服务地址 (例如: http://localhost:11434 或 http://192.168.1.100:11434, 留空则使用默认值)"
-$jwtSecretInput = Read-Host -Prompt "请输入 JWT Secret (建议使用随机字符串，留空则自动生成)"
+# --- Script Entry Point ---
 
-# 将 SecureString 转换为 PlainText
-$postgresPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($postgresPass))
-$mongoPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($mongoPass))
+# Store original location
+$originalLocation = Get-Location
 
-# 调用部署函数
-if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) {
-    if ([string]::IsNullOrWhiteSpace($jwtSecretInput)) {
-        Deploy-FastGPT -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain
-    } else {
-        Deploy-FastGPT -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -JwtSecret $jwtSecretInput
-    }
-} else {
-    if ([string]::IsNullOrWhiteSpace($jwtSecretInput)) {
-        Deploy-FastGPT -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -OllamaHost $ollamaHostInput
-    } else {
-        Deploy-FastGPT -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -OllamaHost $ollamaHostInput -JwtSecret $jwtSecretInput
-    }
-}
+# Get user input for required passwords
+Write-Host "WARNING: Passwords entered here will be temporarily stored in memory as plain text." -ForegroundColor Yellow
+$postgresPassSecure = Read-Host -Prompt "Enter the PostgreSQL database password (e.g., your_postgres_password)" -AsSecureString
+$mongoPassSecure = Read-Host -Prompt "Enter the MongoDB root password (e.g., your_mongo_password)" -AsSecureString
 
-# 恢复到脚本执行前的目录
-Set-Location (Split-Path $MyInvocation.MyCommand.Path -Parent)
+# Get user input for optional values
+$ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://localhost:11434, leave blank for default)"
+$jwtSecretInput = Read-Host -Prompt "Enter the JWT Secret (a random string is recommended, leave blank to auto-generate)"
 
-Write-Host "脚本执行完毕。" -ForegroundColor Green
+# Convert SecureString to PlainText for use in .env file
+$postgresPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($postgresPassSecure))
+$mongoPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($mongoPassSecure))
 
+# Set default values if input is empty
+$ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://localhost:11434" } else { $ollamaHostInput }
+$jwtSecret = if ([string]::IsNullOrWhiteSpace($jwtSecretInput)) { (New-Guid).ToString() } else { $jwtSecretInput }
 
+# Call the deployment function
+Start-FastGptDeployment -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -OllamaHost $ollamaHost -JwtSecret $jwtSecret
+
+# Restore the original location
+Set-Location $originalLocation
+
+Write-Host "Script execution finished." -ForegroundColor Green

@@ -1,178 +1,150 @@
+# Dify Deployment Script
+# This script automates the deployment process of Dify, including cloning the repository,
+# configuring the .env file, starting the services, and accessing the installation page.
 
+# --- Configuration ---
+$difyRepoUrl = "https://github.com/langgenius/dify.git"
+$difyDir = "dify"
+$difyDockerDir = "dify/docker"
+$difyEnvExampleFile = ".env.example"
+$difyEnvFile = ".env"
 
+# --- Prerequisite Checks ---
 
-
-# Dify 部署脚本
-# 本脚本旨在自动化Dify的部署过程，包括克隆仓库、配置.env文件、启动服务和访问安装页面。
-
-# 定义变量
-$DifyRepo = "https://github.com/langgenius/dify.git"
-$DifyDir = "dify"
-$DifyDockerDir = "dify/docker"
-$DifyEnvExample = ".env.example"
-$DifyEnv = ".env"
-
-# 检查并安装Git (如果未安装)
-function Install-Git {
+# Checks if Git is installed and attempts to install it via winget if not found.
+function Ensure-GitInstalled {
     if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-        Write-Host "Git 未安装，正在尝试安装..."
+        Write-Host "Git is not installed. Attempting to install via winget..."
         try {
             winget install --id Git.Git -e --source winget
             if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-                Write-Host "winget 安装 Git 失败，请手动安装 Git 并确保其在 PATH 中。" -ForegroundColor Red
-                Write-Host "下载地址: https://git-scm.com/download/win" -ForegroundColor Yellow
+                Write-Host "Failed to install Git using winget. Please install Git manually and ensure it's in your PATH." -ForegroundColor Red
+                Write-Host "Download from: https://git-scm.com/download/win" -ForegroundColor Yellow
                 exit 1
             }
         } catch {
-            Write-Host "winget 命令不可用或安装失败，请手动安装 Git 并确保其在 PATH 中。" -ForegroundColor Red
-            Write-Host "下载地址: https://git-scm.com/download/win" -ForegroundColor Yellow
+            Write-Host "winget command is unavailable or the installation failed. Please install Git manually and ensure it's in your PATH." -ForegroundColor Red
+            Write-Host "Download from: https://git-scm.com/download/win" -ForegroundColor Yellow
             exit 1
         }
     }
 }
 
-# 检查并安装Docker Desktop (如果未运行)
-function Check-DockerDesktop {
-    Write-Host "检查 Docker Desktop 状态..."
+# Checks if Docker Desktop is running.
+function Ensure-DockerDesktopRunning {
+    Write-Host "Checking Docker Desktop status..."
     $dockerRunning = (docker info -f '{{.ServerStatus}}' 2>$null) -eq 'running'
     if (-not $dockerRunning) {
-        Write-Host "Docker Desktop 未运行或未正确安装。请确保 Docker Desktop 已安装并正在运行，且 WSL2 已启用。" -ForegroundColor Red
-        Write-Host "下载地址: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
+        Write-Host "Docker Desktop is not running or not installed correctly. Please ensure Docker Desktop is installed, running, and WSL2 is enabled." -ForegroundColor Red
+        Write-Host "Download from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
         exit 1
     }
-    Write-Host "Docker Desktop 正在运行。"
+    Write-Host "Docker Desktop is running."
 }
 
-# 检查并配置WSL2
-function Check-WSL2 {
-    Write-Host "检查 WSL2 配置..."
+# Checks if WSL2 is installed and set as the default version.
+function Ensure-WSL2Configured {
+    Write-Host "Checking WSL2 configuration..."
     try {
         $wslVersion = wsl --version 2>$null
         if (-not $wslVersion) {
-            Write-Host "WSL 未安装。正在尝试安装 WSL..." -ForegroundColor Yellow
+            Write-Host "WSL is not installed. Attempting to install WSL..." -ForegroundColor Yellow
             wsl --install
-            Write-Host "请重启计算机以完成 WSL 安装，然后重新运行此脚本。" -ForegroundColor Green
+            Write-Host "Please restart your computer to complete the WSL installation, then re-run this script." -ForegroundColor Green
             exit 0
         }
-        $wslDefaultVersion = (wsl --set-default-version 2 2>$null)
+        wsl --set-default-version 2 2>$null
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "WSL2 设置为默认版本失败。请确保您的系统支持 WSL2。" -ForegroundColor Red
+            Write-Host "Failed to set WSL2 as the default version. Please ensure your system supports WSL2." -ForegroundColor Red
             exit 1
         }
-        Write-Host "WSL2 已配置为默认版本。"
+        Write-Host "WSL2 has been configured as the default version."
     } catch {
-        Write-Host "检查 WSL2 配置时发生错误: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "An error occurred while checking WSL2 configuration: $($_.Exception.Message)" -ForegroundColor Red
         exit 1
     }
 }
 
-# 主部署流程
-function Deploy-Dify {
+# --- Main Deployment Logic ---
+
+# Main function to deploy Dify.
+function Start-DifyDeployment {
     param (
-        [string]$OllamaHost = "http://192.168.1.100:11434", # 建议使用WSL2虚拟机的实际IP
-        [string]$AppKey = (New-Guid).ToString(),
-        [string]$SecretKey = (New-Guid).ToString()
+        [string]$OllamaHost,
+        [string]$AppKey,
+        [string]$SecretKey
     )
 
-    Write-Host "开始部署 Dify..." -ForegroundColor Green
+    Write-Host "Starting Dify deployment..." -ForegroundColor Green
 
-    # 1. 检查并安装Git
-    Install-Git
+    # 1. Prerequisite checks
+    Ensure-GitInstalled
+    Ensure-WSL2Configured
+    Ensure-DockerDesktopRunning
 
-    # 2. 检查并配置WSL2
-    Check-WSL2
-
-    # 3. 检查Docker Desktop状态
-    Check-DockerDesktop
-
-    # 4. 克隆 Dify 仓库
-    if (Test-Path $DifyDir) {
-        Write-Host "Dify 目录已存在，跳过克隆。" -ForegroundColor Yellow
-        Set-Location $DifyDir
+    # 2. Clone Dify repository
+    if (Test-Path $difyDir) {
+        Write-Host "Dify directory already exists, skipping clone. Pulling latest changes..." -ForegroundColor Yellow
+        Set-Location $difyDir
         git pull
     } else {
-        Write-Host "克隆 Dify 仓库..." -ForegroundColor Green
-        git clone $DifyRepo
-        if (-not (Test-Path $DifyDir)) {
-            Write-Host "Dify 仓库克隆失败。" -ForegroundColor Red
+        Write-Host "Cloning Dify repository..." -ForegroundColor Green
+        git clone $difyRepoUrl
+        if (-not (Test-Path $difyDir)) {
+            Write-Host "Failed to clone Dify repository." -ForegroundColor Red
             exit 1
         }
-        Set-Location $DifyDir
+        Set-Location $difyDir
     }
 
-    # 5. 进入 Dify Docker 目录
-    Write-Host "进入 Dify Docker 目录..." -ForegroundColor Green
-    Set-Location $DifyDockerDir
+    # 3. Navigate to Dify Docker directory
+    Write-Host "Changing to Dify Docker directory..." -ForegroundColor Green
+    Set-Location $difyDockerDir
 
-    # 6. 创建并编辑 .env 文件
-    Write-Host "创建并配置 .env 文件..." -ForegroundColor Green
-    Copy-Item $DifyEnvExample $DifyEnv -Force
+    # 4. Create and configure .env file
+    Write-Host "Creating and configuring .env file..." -ForegroundColor Green
+    Copy-Item $difyEnvExampleFile $difyEnvFile -Force
 
-    # 读取 .env 文件内容
-    $envContent = Get-Content $DifyEnv | Out-String
+    $envFileContent = Get-Content $difyEnvFile | Out-String
+    $envFileContent = $envFileContent -replace "^OLLAMA_HOST=.*$", "OLLAMA_HOST=$OllamaHost"
+    $envFileContent = $envFileContent -replace "^APP_KEY=.*$", "APP_KEY=$AppKey"
+    $envFileContent = $envFileContent -replace "^SECRET_KEY=.*$", "SECRET_KEY=$SecretKey"
+    Set-Content -Path $difyEnvFile -Value $envFileContent
+    Write-Host ".env file configured successfully." -ForegroundColor Green
 
-    # 替换关键配置项
-    $envContent = $envContent -replace "^OLLAMA_HOST=.*$", "OLLAMA_HOST=$OllamaHost"
-    $envContent = $envContent -replace "^APP_KEY=.*$", "APP_KEY=$AppKey"
-    $envContent = $envContent -replace "^SECRET_KEY=.*$", "SECRET_KEY=$SecretKey"
+    # 5. Pull Docker images and start services
+    Write-Host "Pulling Docker images and starting Dify services (this may take a while)..." -ForegroundColor Green
+    docker compose pull
+    docker compose up -d
 
-    # 写入修改后的内容
-    Set-Content -Path $DifyEnv -Value $envContent
-    Write-Host ".env 文件配置完成。" -ForegroundColor Green
-
-    # 7. 拉取 Docker 镜像并启动服务
-    Write-Host "拉取 Docker 镜像并启动 Dify 服务..." -ForegroundColor Green
-    docker-compose pull
-    docker-compose up -d
-
-    # 8. 访问安装页面
-    Write-Host "Dify 服务已启动。请访问安装页面完成初始化配置。" -ForegroundColor Green
-    Write-Host "访问地址: http://localhost/install" -ForegroundColor Cyan
+    # 6. Final instructions
+    Write-Host "Dify services started. Please visit the installation page to complete the initial setup." -ForegroundColor Green
+    Write-Host "Access URL: http://localhost/install" -ForegroundColor Cyan
     Start-Process http://localhost/install
 
-    Write-Host "Dify 部署流程完成。" -ForegroundColor Green
-    Write-Host "请在浏览器中完成 Dify 的初始化设置，并根据需求文档配置 Ollama 模型。" -ForegroundColor Yellow
+    Write-Host "Dify deployment process completed." -ForegroundColor Green
+    Write-Host "Please complete the Dify initial setup in your browser and configure the Ollama model as per the requirements document." -ForegroundColor Yellow
 }
 
-# 脚本入口
-$ollamaHostInput = Read-Host -Prompt "请输入 Ollama 服务地址 (例如: http://192.168.1.100:11434, 留空则使用默认值)"
-$appKeyInput = Read-Host -Prompt "请输入 Dify APP_KEY (建议使用随机字符串，留空则自动生成)"
-$secretKeyInput = Read-Host -Prompt "请输入 Dify SECRET_KEY (建议使用随机字符串，留空则自动生成)"
+# --- Script Entry Point ---
 
-# 调用部署函数
-if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) {
-    if ([string]::IsNullOrWhiteSpace($appKeyInput)) {
-        if ([string]::IsNullOrWhiteSpace($secretKeyInput)) {
-            Deploy-Dify
-        } else {
-            Deploy-Dify -SecretKey $secretKeyInput
-        }
-    } else {
-        if ([string]::IsNullOrWhiteSpace($secretKeyInput)) {
-            Deploy-Dify -AppKey $appKeyInput
-        } else {
-            Deploy-Dify -AppKey $appKeyInput -SecretKey $secretKeyInput
-        }
-    }
-} else {
-    if ([string]::IsNullOrWhiteSpace($appKeyInput)) {
-        if ([string]::IsNullOrWhiteSpace($secretKeyInput)) {
-            Deploy-Dify -OllamaHost $ollamaHostInput
-        } else {
-            Deploy-Dify -OllamaHost $ollamaHostInput -SecretKey $secretKeyInput
-        }
-    } else {
-        if ([string]::IsNullOrWhiteSpace($secretKeyInput)) {
-            Deploy-Dify -OllamaHost $ollamaHostInput -AppKey $appKeyInput
-        } else {
-            Deploy-Dify -OllamaHost $ollamaHostInput -AppKey $appKeyInput -SecretKey $secretKeyInput
-        }
-    }
-}
+# Store original location
+$originalLocation = Get-Location
 
-# 恢复到脚本执行前的目录
-Set-Location (Split-Path $MyInvocation.MyCommand.Path -Parent)
+# Get user input
+$ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://192.168.1.100:11434, leave blank for default)"
+$appKeyInput = Read-Host -Prompt "Enter the Dify APP_KEY (a random string is recommended, leave blank to auto-generate)"
+$secretKeyInput = Read-Host -Prompt "Enter the Dify SECRET_KEY (a random string is recommended, leave blank to auto-generate)"
 
-Write-Host "脚本执行完毕。" -ForegroundColor Green
+# Set default values if input is empty
+$ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://192.168.1.100:11434" } else { $ollamaHostInput }
+$appKey = if ([string]::IsNullOrWhiteSpace($appKeyInput)) { (New-Guid).ToString() } else { $appKeyInput }
+$secretKey = if ([string]::IsNullOrWhiteSpace($secretKeyInput)) { (New-Guid).ToString() } else { $secretKeyInput }
 
+# Call the deployment function with the parameters
+Start-DifyDeployment -OllamaHost $ollamaHost -AppKey $appKey -SecretKey $secretKey
 
+# Restore the original location
+Set-Location $originalLocation
+
+Write-Host "Script execution finished." -ForegroundColor Green
