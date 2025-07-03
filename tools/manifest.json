@@ -1,0 +1,24 @@
+{
+  "schema_version": "v1",
+  "tools": [
+    {
+      "name": "send_teams_message",
+      "description": "Sends a message to a specified Microsoft Teams channel using a webhook URL.",
+      "command": "python tools/send_teams_message.py",
+      "parameters": [
+        {
+          "name": "webhook_url",
+          "type": "string",
+          "description": "The Incoming Webhook URL for the Microsoft Teams channel.",
+          "required": true
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "description": "The content of the message to be sent. Can include markdown.",
+          "required": true
+        }
+      ]
+    }
+  ]
+}
