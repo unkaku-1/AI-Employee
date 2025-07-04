@@ -1,0 +1,7 @@
+{
+  "namespace": "AIE_Tools",
+  "display_name": "AI Employee Custom Tools",
+  "description": "A collection of custom tools for the AI Employee.",
+  "author": "Gemini",
+  "api_spec_url": "http://host.docker.internal:8001/openapi.json"
+}
