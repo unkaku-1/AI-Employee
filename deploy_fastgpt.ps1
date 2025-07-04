@@ -32,7 +32,7 @@ function Ensure-GitInstalled {
 # Checks if Docker Desktop is running.
 function Ensure-DockerDesktopRunning {
     Write-Host "Checking Docker Desktop status..."
-    $dockerRunning = (docker info -f '{{.ServerStatus}}' 2>$null) -eq 'running'
+    $dockerRunning = (docker info 2>$null | Select-String -Pattern "Server Version" -Quiet)
     if (-not $dockerRunning) {
         Write-Host "Docker Desktop is not running or not installed correctly. Please ensure Docker Desktop is installed, running, and WSL2 is enabled." -ForegroundColor Red
         Write-Host "Download from: https://www.docker.com/products/docker-desktop/" -ForegroundColor Yellow
