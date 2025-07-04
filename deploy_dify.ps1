@@ -131,20 +131,22 @@ function Start-DifyDeployment {
 # Store original location
 $originalLocation = Get-Location
 
-# Get user input
-$ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://192.168.1.100:11434, leave blank for default)"
-$appKeyInput = Read-Host -Prompt "Enter the Dify APP_KEY (a random string is recommended, leave blank to auto-generate)"
-$secretKeyInput = Read-Host -Prompt "Enter the Dify SECRET_KEY (a random string is recommended, leave blank to auto-generate)"
+try {
+    # Get user input
+    $ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://192.168.1.100:11434, leave blank for default)"
+    $appKeyInput = Read-Host -Prompt "Enter the Dify APP_KEY (a random string is recommended, leave blank to auto-generate)"
+    $secretKeyInput = Read-Host -Prompt "Enter the Dify SECRET_KEY (a random string is recommended, leave blank to auto-generate)"
 
-# Set default values if input is empty
-$ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://192.168.1.100:11434" } else { $ollamaHostInput }
-$appKey = if ([string]::IsNullOrWhiteSpace($appKeyInput)) { (New-Guid).ToString() } else { $appKeyInput }
-$secretKey = if ([string]::IsNullOrWhiteSpace($secretKeyInput)) { (New-Guid).ToString() } else { $secretKeyInput }
+    # Set default values if input is empty
+    $ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://192.168.1.100:11434" } else { $ollamaHostInput }
+    $appKey = if ([string]::IsNullOrWhiteSpace($appKeyInput)) { (New-Guid).ToString() } else { $appKeyInput }
+    $secretKey = if ([string]::IsNullOrWhiteSpace($secretKeyInput)) { (New-Guid).ToString() } else { $secretKeyInput }
 
-# Call the deployment function with the parameters
-Start-DifyDeployment -OllamaHost $ollamaHost -AppKey $appKey -SecretKey $secretKey
-
-# Restore the original location
-Set-Location $originalLocation
-
-Write-Host "Script execution finished." -ForegroundColor Green
+    # Call the deployment function with the parameters
+    Start-DifyDeployment -OllamaHost $ollamaHost -AppKey $appKey -SecretKey $secretKey
+}
+finally {
+    # Restore the original location
+    Set-Location $originalLocation
+    Write-Host "Script execution finished." -ForegroundColor Green
+}

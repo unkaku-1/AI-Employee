@@ -34,7 +34,7 @@ __pycache__/
 *.pyo
 
 # FastGPT and Dify specific
-FastGPT/
+
 dify/
 
 # Other generated files

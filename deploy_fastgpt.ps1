@@ -3,10 +3,11 @@
 # configuring the .env file, starting the services, and verifying the database connection.
 
 # --- Configuration ---
+$scriptDir = $PSScriptRoot
 $fastGptRepoUrl = "https://github.com/labring/FastGPT.git"
-$fastGptDir = "FastGPT"
-$fastGptEnvExampleFile = ".env.example"
-$fastGptEnvFile = ".env"
+$fastGptDir = Join-Path $scriptDir "FastGPT"
+$fastGptEnvExampleFile = Join-Path $fastGptDir ".env.example"
+$fastGptEnvFile = Join-Path $fastGptDir ".env"
 
 # --- Prerequisite Checks ---
 
@@ -84,18 +85,21 @@ function Start-FastGptDeployment {
 
     # 2. Clone FastGPT repository
     if (Test-Path $fastGptDir) {
-        Write-Host "FastGPT directory already exists, skipping clone. Pulling latest changes..." -ForegroundColor Yellow
-        Set-Location $fastGptDir
+        Write-Host "FastGPT directory already exists. Pulling latest changes..." -ForegroundColor Yellow
+        Push-Location $fastGptDir
         git pull
+        Pop-Location
     } else {
         Write-Host "Cloning FastGPT repository..." -ForegroundColor Green
-        git clone $fastGptRepoUrl
-        if (-not (Test-Path $fastGptDir)) {
+        git clone $fastGptRepoUrl $fastGptDir
+        if ($LASTEXITCODE -ne 0) {
             Write-Host "Failed to clone FastGPT repository." -ForegroundColor Red
             exit 1
         }
-        Set-Location $fastGptDir
     }
+
+    # Change to FastGPT directory for subsequent commands
+    Set-Location $fastGptDir
 
     # 3. Create and configure .env file
     Write-Host "Creating and configuring .env file..." -ForegroundColor Green
@@ -106,50 +110,51 @@ function Start-FastGptDeployment {
     $envFileContent = $envFileContent -replace "^MONGO_INITDB_ROOT_PASSWORD=.*$", "MONGO_INITDB_ROOT_PASSWORD=$MongoRootPassword"
     $envFileContent = $envFileContent -replace "^OLLAMA_HOST=.*$", "OLLAMA_HOST=$OllamaHost"
     $envFileContent = $envFileContent -replace "^JWT_SECRET=.*$", "JWT_SECRET=$JwtSecret"
-    Set-Content -Path $fastGptEnvFile -Value $envFileContent
+    Set-Content -LiteralPath $fastGptEnvFile -Value $envFileContent -Encoding UTF8
     Write-Host ".env file configured successfully." -ForegroundColor Green
 
     # 4. Pull Docker images and start services
     Write-Host "Pulling Docker images and starting FastGPT services (this may take a while)..." -ForegroundColor Green
     docker compose pull
-    docker compose up -d
+    Write-Host "Starting containers in foreground to view logs..." -ForegroundColor Yellow
+    docker compose up
 
-    # 5. Verify FastGPT service status
-    Write-Host "Verifying FastGPT service status... (waiting 30 seconds for services to initialize)" -ForegroundColor Green
-    Start-Sleep -Seconds 30
-    $healthCheckUrl = "http://localhost/health"
-    try {
-        $response = Invoke-WebRequest -Uri $healthCheckUrl -UseBasicParsing -ErrorAction Stop
-        if ($response.StatusCode -eq 200 -and $response.Content -like '*"healthy"*') {
-            Write-Host "FastGPT service is running properly!" -ForegroundColor Green
-        } else {
-            Write-Host "FastGPT service health check failed. Status Code: $($response.StatusCode), Content: $($response.Content)" -ForegroundColor Red
-        }
-    } catch {
-        Write-Host "Could not connect to the FastGPT health check endpoint. Please check if the service has started or if the port is open. Error: $($_.Exception.Message)" -ForegroundColor Red
-    }
+    # 5. Verify FastGPT service status (Commented out for debugging)
+    # Write-Host "Verifying FastGPT service status... (waiting 30 seconds for services to initialize)" -ForegroundColor Green
+    # Start-Sleep -Seconds 30
+    # $healthCheckUrl = "http://localhost/health"
+    # try {
+    #     $response = Invoke-WebRequest -Uri $healthCheckUrl -UseBasicParsing -ErrorAction Stop
+    #     if ($response.StatusCode -eq 200 -and $response.Content -like '*"healthy"*') {
+    #         Write-Host "FastGPT service is running properly!" -ForegroundColor Green
+    #     } else {
+    #         Write-Host "FastGPT service health check failed. Status Code: $($response.StatusCode), Content: $($response.Content)" -ForegroundColor Red
+    #     }
+    # } catch {
+    #     Write-Host "Could not connect to the FastGPT health check endpoint. Please check if the service has started or if the port is open. Error: $($_.Exception.Message)" -ForegroundColor Red
+    # }
 
-    # 6. Verify database container status
-    Write-Host "Verifying database container status..." -ForegroundColor Green
-    try {
-        # PostgreSQL
-        docker exec -i fastgpt_postgres_1 psql -U postgres -c "\l" 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "PostgreSQL container is running properly." -ForegroundColor Green
-        } else {
-            Write-Host "PostgreSQL container verification failed." -ForegroundColor Red
-        }
+    # 6. Verify database container status (Commented out for debugging)
+    # Write-Host "Verifying database container status..." -ForegroundColor Green
+    # try {
+    #     # PostgreSQL
+    #     docker exec -i fastgpt_postgres_1 psql -U postgres -c "\l" 2>&1 | Out-Null
+    #     if ($LASTEXITCODE -eq 0) {
+    #         Write-Host "PostgreSQL container is running properly." -ForegroundColor Green
+    #     } else {
+    #         Write-Host "PostgreSQL container verification failed." -ForegroundColor Red
+    #     }
 
-        # MongoDB
-        docker exec -i fastgpt_mongo_1 mongosh --eval "db.adminCommand('ping')" 2>&1 | Out-Null
-        if ($LASTEXITCODE -eq 0) {
-            Write-Host "MongoDB container is running properly." -ForegroundColor Green
-        } else {
-            Write-Host "MongoDB container verification failed." -ForegroundColor Red
-        }
-    } catch {
-        Write-Host "An error occurred while verifying database status: $($_.Exception.Message)" -ForegroundColor Red
-    }
+    #     # MongoDB
+    #     docker exec -i fastgpt_mongo_1 mongosh --eval "db.adminCommand('ping')" 2>&1 | Out-Null
+    #     if ($LASTEXITCODE -eq 0) {
+    #         Write-Host "MongoDB container is running properly." -ForegroundColor Green
+    #     } else {
+    #         Write-Host "MongoDB container verification failed." -ForegroundColor Red
+    #     }
+    # } catch {
+    #     Write-Host "An error occurred while verifying database status: $($_.Exception.Message)" -ForegroundColor Red
+    # }
 
     Write-Host "FastGPT deployment process completed." -ForegroundColor Green
 }
@@ -159,27 +164,29 @@ function Start-FastGptDeployment {
 # Store original location
 $originalLocation = Get-Location
 
-# Get user input for required passwords
-Write-Host "WARNING: Passwords entered here will be temporarily stored in memory as plain text." -ForegroundColor Yellow
-$postgresPassSecure = Read-Host -Prompt "Enter the PostgreSQL database password (e.g., your_postgres_password)" -AsSecureString
-$mongoPassSecure = Read-Host -Prompt "Enter the MongoDB root password (e.g., your_mongo_password)" -AsSecureString
+try {
+    # Get user input for required passwords
+    Write-Host "WARNING: Passwords entered here will be temporarily stored in memory as plain text." -ForegroundColor Yellow
+    $postgresPassSecure = Read-Host -Prompt "Enter the PostgreSQL database password (e.g., your_postgres_password)" -AsSecureString
+    $mongoPassSecure = Read-Host -Prompt "Enter the MongoDB root password (e.g., your_mongo_password)" -AsSecureString
 
-# Get user input for optional values
-$ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://localhost:11434, leave blank for default)"
-$jwtSecretInput = Read-Host -Prompt "Enter the JWT Secret (a random string is recommended, leave blank to auto-generate)"
+    # Get user input for optional values
+    $ollamaHostInput = Read-Host -Prompt "Enter the Ollama service address (e.g., http://localhost:11434, leave blank for default)"
+    $jwtSecretInput = Read-Host -Prompt "Enter the JWT Secret (a random string is recommended, leave blank to auto-generate)"
 
-# Convert SecureString to PlainText for use in .env file
-$postgresPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($postgresPassSecure))
-$mongoPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($mongoPassSecure))
+    # Convert SecureString to PlainText for use in .env file
+    $postgresPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($postgresPassSecure))
+    $mongoPassPlain = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto([System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($mongoPassSecure))
 
-# Set default values if input is empty
-$ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://localhost:11434" } else { $ollamaHostInput }
-$jwtSecret = if ([string]::IsNullOrWhiteSpace($jwtSecretInput)) { (New-Guid).ToString() } else { $jwtSecretInput }
+    # Set default values if input is empty
+    $ollamaHost = if ([string]::IsNullOrWhiteSpace($ollamaHostInput)) { "http://localhost:11434" } else { $ollamaHostInput }
+    $jwtSecret = if ([string]::IsNullOrWhiteSpace($jwtSecretInput)) { (New-Guid).ToString() } else { $jwtSecretInput }
 
-# Call the deployment function
-Start-FastGptDeployment -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -OllamaHost $ollamaHost -JwtSecret $jwtSecret
-
-# Restore the original location
-Set-Location $originalLocation
-
-Write-Host "Script execution finished." -ForegroundColor Green
+    # Call the deployment function
+    Start-FastGptDeployment -PostgresPassword $postgresPassPlain -MongoRootPassword $mongoPassPlain -OllamaHost $ollamaHost -JwtSecret $jwtSecret
+}
+finally {
+    # Restore the original location
+    Set-Location $originalLocation
+    Write-Host "Script execution finished." -ForegroundColor Green
+}
