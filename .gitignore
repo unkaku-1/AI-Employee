@@ -35,7 +35,7 @@ __pycache__/
 
 # FastGPT and Dify specific
 
-dify/
+
 
 # Other generated files
 *.bak
