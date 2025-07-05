@@ -20,7 +20,7 @@
 
 # --- Script Configuration ---
 $ErrorActionPreference = "Stop"
-$scriptDir = $PSScriptRoot | Resolve-Path -LiteralPath
+$scriptDir = Resolve-Path -LiteralPath $PSScriptRoot
 $fastGptDir = Join-Path $scriptDir "FastGPT"
 $difyDir = Join-Path $scriptDir "dify"
 
@@ -102,10 +102,10 @@ function Deploy-FastGPT {
     (Get-Content $composeFile) | ForEach-Object { $_ -replace "^\s*restart:.*$", "" } | Set-Content $composeFile -Encoding UTF8
 
     Write-Host "Stopping any old or orphaned containers..."
-    docker compose -f $composeFile down --remove-orphans --quiet
+    docker compose -p fastgpt -f $composeFile down --remove-orphans --quiet
     
     Write-Host "Starting FastGPT services for a single session..."
-    docker compose -f $composeFile up -d
+    docker compose -p fastgpt -f $composeFile up -d
 
     Write-Host "Waiting for services to start... (up to 2 minutes)"
     $timeout = 120
@@ -154,10 +154,10 @@ function Deploy-Dify {
     (Get-Content $composeFile) | ForEach-Object { $_ -replace "^\s*restart:.*$", "" } | Set-Content $composeFile -Encoding UTF8
 
     Write-Host "Stopping any old or orphaned containers..."
-    docker compose down --remove-orphans --quiet
+    docker compose -p dify down --remove-orphans --quiet
 
     Write-Host "Starting Dify services for a single session..."
-    docker compose up -d
+    docker compose -p dify up -d
 
     Write-Host "Waiting for services to start... (up to 2 minutes)"
     $timeout = 120
